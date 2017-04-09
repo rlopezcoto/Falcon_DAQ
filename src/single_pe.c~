@@ -1,0 +1,209 @@
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <iostream>
+
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+
+#include "samples.h"
+#include "fcio.h"
+#include "timer.h" 
+#include "pzpsa.h" 
+
+#include "TH1F.h"
+#include "TFile.h"
+#include "TF1.h"
+
+#include "/root/fadc/Falcon_DAQ/include/ChargeTimeExtraction.h"
+
+# define nChFADC 24
+using namespace std;
+
+int 	debug=3; 
+int 	show=1; 
+int 	us=4; 
+double 	pz=0.75; 
+int 	smooth=8; 
+double  mult=1; 
+int 	sw=0; 
+int 	ew=100000; 
+int     adcs=0;
+int     flag=0;
+float   Single_PE=0;
+
+int main(int argc, char**argv)
+{
+
+  TFile* f = new TFile("Single_PE.root","recreate"); 
+  TH1F* hamp[nChFADC];
+  TH1F* hexcess[nChFADC];   
+  TH1F* hdiff[nChFADC];   
+
+int i=0; while(++i<argc)
+{
+  char *opt=argv[i]; 
+  if(strcmp(opt,"-d")==0) 		sscanf(argv[++i],"%d",&debug); 	   // <level> set debug level 0=none,1=error,2=warn,3=info,>3=debug
+  else if(strcmp(opt,"-f")==0) 		sscanf(argv[++i],"%d",&flag);      // <type> show events: 0=off 1=on   
+  else break; 
+}
+
+
+
+char 	**files=&argv[argc-1]; 
+float 	**traces=0; 
+
+while(files[0])
+{
+
+char *fcio=files[0]; files++;
+
+fprintf(stderr,"plot FC250b events FCIO format %s\n",fcio); 
+int iotag;
+int rc=0;
+int es=0;
+int hresolution=0;
+
+ofstream outfile("Single_PE.txt");
+
+//FCIODebug(debug);
+FCIOData *x=FCIOOpen(fcio,10000,0);
+if(!x) exit(1); 
+
+while((iotag=FCIOGetRecord(x))>0) 
+{
+  int i; 
+  switch(iotag)
+  {
+    case FCIOConfig:  ///////////////////////////////////////////////////////// a config record 
+    adcs=x->config.adcs;
+    es=x->config.eventsamples;
+    Free2DFSamples(traces); 
+    //Free2DFSamples(amphisto); 
+    traces=Allocate2DFSamples(adcs,es*us); 
+    //hresolution=1<<x->config.adcbits;
+    //amphisto=Allocate2DFSamples(adcs,hresolution*10);
+
+    for (int iCh=0;iCh<adcs;iCh++){    
+      fprintf(stderr,"hamp name: hamp_%i\n",iCh);
+      hamp[iCh] = new TH1F(Form("hamp_%i",iCh),"",100,0,150);
+      hamp[iCh]->SetXTitle("Amplitude [mV]");
+      hexcess[iCh] = new TH1F(Form("hexcess",iCh),"",50,-100,300);
+      hexcess[iCh]->SetXTitle("Excess [mV*ns]");
+      hdiff[iCh] = new TH1F(Form("hdiff",iCh),"",50,-100,300);
+      hdiff[iCh]->SetXTitle("Amplitude of the differentiated trace");
+    }
+
+    break; 
+
+    case FCIOStatus:  ///////////////////////////////////////////////////////// a status record 
+    break; 
+
+    case FCIOEvent:   ///////////////////////////////////////////////////////// event record 
+    {
+    
+    /* int *ts=x->event.timestamp; */
+    /* int to=x->event.timeoffset[2];  */
+    /* double atime=ts[1]+1.0*ts[2]/(ts[3]+1);  */
+    
+    //if(debug>3) fprintf(stderr,"event %d %d %d %d %d => %.9f %18f \n",ts[0],ts[1],ts[2],ts[3],ts[4],atime,atime+to);
+
+    for (int iCh=0;iCh<adcs;iCh++) 
+    {
+      // calculate baseline, integrator and trace integral  
+      double bl=Baseline(x,iCh);
+
+      if (flag==0){
+	double max=FindMaximum(es,x,iCh,bl);
+	hamp[iCh]->Fill(max); 
+      }
+      else if (flag==1){
+	double excess = FindExcess(x,bl,iCh);
+	hexcess[iCh]->Fill(excess); 
+      }
+      else if (flag==2){
+	float tmax;
+	int at;
+	PzpsaSmoothUpsample(es,us,x->event.trace[iCh],bl,pz,traces[iCh],&tmax,&at);
+	LRAverageFSamplesFilter(es*us,traces[iCh],traces[iCh],2,smooth); 
+	at=FindMaximumOfFSamples(es*us,traces[iCh],sw,ew); 
+	for(int i1=0; i1<es*us; i1++) if(i1<sw ||i1>ew)  traces[iCh][i1]=0;
+	tmax=mult*traces[iCh][at];
+	hdiff[iCh]->Fill(tmax);
+      }
+      //fprintf(stderr,"intsum %8.2f,bl %8.2f,intsum-bl %8.2f\n",intsum,bl,intsum-bl);
+      //fprintf(stderr,"excess %8.2f,max %8.2f\n",excess,max);
+      //fprintf(stderr,"adc %5d bl %8.2f isum-bl %10g tsum-bl %10.2f max-bl %8.2f pos %5d => %6.1f %3d\n",
+      //   i,bl,intsum,tsum,max,imax,tmax,at);      
+    }
+
+    //else if(rc=='P') rc=y2dplot("fcio event uspz data",'f'+'p',adcs,es*us,traces); 
+    //else if(rc=='H') rc=y2dplotnorm("fcio amp histo",'f'+'p',adcs,0,0,10*hresolution,0,hresolution,amphisto);  
+    //else             rc=y2dplot("fcio event data",'S'+'p',x->config.adcs+x->config.triggers,x->config.eventsamples,x->event.trace); 
+
+    break; 
+    }      
+
+    default:        ///////////////////////////////////////////////////////////  unknown record 
+
+    fprintf(stderr,"record tag %d... skipped \n",iotag); 
+    break;
+  }
+  //outfile.close();            
+  if(rc=='e') exit(0);
+ } 
+
+ fprintf(stderr,"end of file \n");
+ FCIOClose(x);
+
+ // Fit Single PE
+ TF1 *f1 = new TF1("f1","[0]*TMath::Power(([1]/[2]),(x/[2]))*(TMath::Exp(-([1]/[2])))/TMath::Gamma((x/[2])+1)"); // "xmin" = 0, "xmax" = 10
+
+ outfile<<"Channel \t Single PE \t Flag"<<endl;
+ for (int iCh=0;iCh<adcs;iCh++) 
+   {
+     if (flag==0){
+       f1->SetParameters(1., 40., 1.); // you MUST set non-zero initial values for parameters
+       for (int bin=0;bin<=hamp[iCh]->GetNbinsX();bin++){
+	 //fprintf (stderr,"bin %i, content %f\n",bin,hamp->GetBinContent(bin));
+	 hamp[iCh]->SetBinContent(bin,log10(hamp[iCh]->GetBinContent(bin)));
+       }
+       hamp[iCh]->Fit("f1", "R","",20,70); // "R" = fit between "xmin" and "xmax" of the "f1"
+       Single_PE=hamp[iCh]->GetFunction("f1")->GetParameter(1);
+       hamp[iCh]->Write();
+     }
+
+     if (flag==1){
+       f1->SetParameters(10., 180., 100.); // you MUST set non-zero initial values for parameters
+       for (int bin=0;bin<=hexcess[iCh]->GetNbinsX();bin++){
+	 //fprintf (stderr,"bin %i, content %f\n",bin,hexcess->GetBinContent(bin));
+	 hexcess[iCh]->SetBinContent(bin,log10(hexcess[iCh]->GetBinContent(bin)));
+       }
+       hexcess[iCh]->Fit("f1", "","R",80,200); // "R" = fit between "xmin" and "xmax" of the "f1"
+       Single_PE=hexcess[iCh]->GetFunction("f1")->GetParameter(1);
+       hexcess[iCh]->Write();
+     }
+
+     if (flag==2){
+       for (int bin=0;bin<=hdiff[iCh]->GetNbinsX();bin++){
+	 //fprintf (stderr,"bin %i, content %f\n",bin,hdiff->GetBinContent(bin));
+	 hdiff[iCh]->SetBinContent(bin,log10(hdiff[iCh]->GetBinContent(bin)));
+       }
+       hdiff[iCh]->Fit("f1", "R"); // "R" = fit between "xmin" and "xmax" of the "f1"
+       Single_PE=hdiff[iCh]->GetFunction("f1")->GetParameter(1);
+       hdiff[iCh]->Write();
+     }
+
+     outfile<<iCh<<"\t\t"<<Single_PE<<"\t\t"<<flag<<endl;
+   }
+ outfile.close();
+ f->Close(); 
+
+ }
+ return 0; 
+
+}
+
