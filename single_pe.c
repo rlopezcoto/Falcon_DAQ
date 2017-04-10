@@ -1,0 +1,228 @@
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <iostream>
+
+#include <stdio.h>
+#include <math.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+
+#include "samples.h"
+#include "fcio.h"
+#include "timer.h" 
+#include "pzpsa.h" 
+
+#include "TH1F.h"
+#include "TFile.h"
+#include "TF1.h"
+#include "TCanvas.h"
+
+#include "ChargeTimeExtraction.h"
+
+# define nChFADC 24
+using namespace std;
+
+int 	debug=0; 
+int 	us=4; 
+double 	pz=0.75; 
+int 	smooth=8; 
+double  mult=1; 
+int 	sw=0; 
+int 	ew=100000; 
+int     adcs=0;
+int     flag=1;
+float   Single_PE=0;
+
+char const *name="/mnt/FALCON/data/calibration/Single_PE";
+const char              *ifile=0;
+
+void printOptions(){
+  fprintf(stderr,"Options:\n");
+  fprintf(stderr,"-d debug level 0, 1, 2 \n");
+  fprintf(stderr,"-i input FCIO-file \n");
+  fprintf(stderr,"-f flag to run the Single PE method (1=Maximum, 2=Integral-Baseline 3=Peak of the differentiated pole zero corrected traces) \n");
+  fprintf(stderr,"-n path name for the Single PE files to be stored \n\n");
+}
+
+int main(int argc, char**argv)
+{
+  
+  printOptions();
+
+  int i=0; 
+  while(++i<argc)
+    {
+      char *opt=argv[i]; 
+      if(strcmp(opt,"-d")==0) 		sscanf(argv[++i],"%d",&debug); 	   // <level> set debug level 0=none,1=error,2=warn,3=info,>3=debu
+      else if(strcmp(opt,"-f")==0) 	sscanf(argv[++i],"%d",&flag);      // flag to run the Single PE method   
+      else if(strcmp(opt,"-i")==0)      ifile=argv[++i];                   // set input FCIO file (defualt none) 
+      else if(strcmp(opt,"-n")==0) 	name=argv[++i];                    // path name for the Single PE files to be stored   
+      else break; 
+    }
+  
+  if (ifile == 0) {
+    fprintf(stderr,"Error, no input file specified\n");
+    return 0;
+  }
+  if (name == "/mnt/FALCON/data/calibration/Single_PE") {
+    fprintf(stderr,"Warning, no calibration file specified\n");
+    fprintf(stderr,"Files will be stored in /mnt/FALCON/data/calibration/Single_PE*\n");
+  }
+  
+  float 	**uptraces=0; 
+
+  TFile* f = new TFile(Form("%s.root",name),"recreate"); 
+  ofstream outfile(Form("%s.txt",name));
+
+  TH1F* hamp[nChFADC];
+  TH1F* hexcess[nChFADC];   
+  TH1F* hdiff[nChFADC];   
+
+  if(ifile)
+    {
+     const char *fcio=ifile;
+     
+     int iotag;
+     int rc=0;
+     int es=0;
+     int hresolution=0;
+
+     FCIODebug(debug);
+     FCIOData *x=FCIOOpen(fcio,10000,0);
+     if(!x) { 
+       fprintf(stderr,"Error opening the file %s\n",fcio);
+       exit(1);
+     } 
+     fprintf(stderr,"Opening file \n");
+
+     while((iotag=FCIOGetRecord(x))>0) 
+       {
+	 switch(iotag)
+	   {
+	   case FCIOConfig:  ///////////////////////////////////////////////////////// a config record 
+	     adcs=x->config.adcs;
+	     es=x->config.eventsamples;
+	     Free2DFSamples(uptraces); 
+	     uptraces=Allocate2DFSamples(adcs,es*us); 
+	     fprintf(stderr,"Creating histograms and filling them \n");
+	     // Fill histograms
+	     for (int iCh=0;iCh<adcs;iCh++){    
+	       hamp[iCh] = new TH1F(Form("hamp_%i",iCh),"",150,0,150);
+	       hamp[iCh]->SetXTitle("Amplitude [mV]");
+	       hexcess[iCh] = new TH1F(Form("hexcess_%i",iCh),"",50,-100,300);
+	       hexcess[iCh]->SetXTitle("Excess [mV*ns]");
+	       hdiff[iCh] = new TH1F(Form("hdiff_%i",iCh),"",400,0,200);
+	       hdiff[iCh]->SetXTitle("Amplitude of the differentiated trace");
+	     }
+
+	     break; 
+
+	   case FCIOStatus:  ///////////////////////////////////////////////////////// a status record 
+	     break; 
+	     
+	   case FCIOEvent:   ///////////////////////////////////////////////////////// event record 
+	     {    
+	       for (int iCh=0;iCh<adcs;iCh++) 
+		 {
+		   // calculate baseline, integrator and trace integral  
+		   double bl=GetBaseline(x,iCh);
+
+		   if (flag==1){
+		     double max=GetMaximum(x,iCh);
+		     hamp[iCh]->Fill(max); 
+		   }
+		   else if (flag==2){
+		     double excess = GetExcess(x,iCh);
+		     hexcess[iCh]->Fill(excess); 
+		   }
+		   else if (flag==3){
+		     float tmax=GetTime(x,iCh,uptraces);;
+		     hdiff[iCh]->Fill(tmax);
+		   }
+		   else{
+		     fprintf(stderr,"No Single PE extraction routine corresponding to calibration flag %i\n",flag);
+		     return 0;
+		   }
+		   //fprintf(stderr,"intsum %8.2f,bl %8.2f,intsum-bl %8.2f\n",intsum,bl,intsum-bl);
+		   //fprintf(stderr,"excess %8.2f,max %8.2f\n",excess,max);
+		   //fprintf(stderr,"adc %5d bl %8.2f isum-bl %10g tsum-bl %10.2f max-bl %8.2f pos %5d => %6.1f %3d\n",
+		   //   i,bl,intsum,tsum,max,imax,tmax,at);      
+		 }
+	       //else if(rc=='P') rc=y2dplot("fcio event uspz data",'f'+'p',adcs,es*us,traces); 
+	       //else if(rc=='H') rc=y2dplotnorm("fcio amp histo",'f'+'p',adcs,0,0,10*hresolution,0,hresolution,amphisto);  
+	       //else             rc=y2dplot("fcio event data",'S'+'p',x->config.adcs+x->config.triggers,x->config.eventsamples,x->event.trace); 
+	       break; 
+	     }      
+	   default:        ///////////////////////////////////////////////////////////  unknown record 
+	     fprintf(stderr,"record tag %d... skipped \n",iotag); 
+	     break;
+	   }
+	 //outfile.close();            
+	 if(rc=='e') exit(0);
+       } 
+     fprintf(stderr,"End of file \n");
+     FCIOClose(x);
+
+
+     // *********** Fit Single PE ****************
+     fprintf(stderr,"Fitting data \n");
+     TF1 *f1 = new TF1("f1","[0]*TMath::Power(([1]/[2]),(x/[2]))*(TMath::Exp(-([1]/[2])))/TMath::Gamma((x/[2])+1)"); // "xmin" = 0, "xmax" = 10
+
+     TCanvas *c = new TCanvas("c","",600,400);
+     outfile<<"Channel \t Single PE \t Calibration flag"<<endl;
+     for (int iCh=0;iCh<adcs;iCh++) 
+       {
+	 if (flag==1){
+	   f1->SetParameters(1., 40., 1.); // you MUST set non-zero initial values for parameters
+	   for (int bin=0;bin<=hamp[iCh]->GetNbinsX();bin++){
+	     //fprintf (stderr,"bin %i, content %f\n",bin,hamp->GetBinContent(bin));
+	     if(hamp[iCh]->GetBinContent(bin) !=0 ){
+	       hamp[iCh]->SetBinContent(bin,log10(hamp[iCh]->GetBinContent(bin)));
+	     }
+	   }
+	   if(debug>2)hamp[iCh]->Fit("f1","R","",20,70); 
+	   hamp[iCh]->Fit("f1","RQ","",20,70); 
+	   Single_PE=hamp[iCh]->GetFunction("f1")->GetParameter(1);
+	   hamp[iCh]->Write();
+	 }
+	 
+	 else if (flag==2){
+	   f1->SetParameters(10., 180., 100.); 
+	   for (int bin=0;bin<=hexcess[iCh]->GetNbinsX();bin++){
+	     if(hexcess[iCh]->GetBinContent(bin) !=0 ){
+	       hexcess[iCh]->SetBinContent(bin,log10(hexcess[iCh]->GetBinContent(bin)));
+	     }
+	   }
+	   if(debug>2) hexcess[iCh]->Fit("f1", "RQ","",80,200);
+	   hexcess[iCh]->Fit("f1", "RQ","",80,200); 
+	   Single_PE=hexcess[iCh]->GetFunction("f1")->GetParameter(1);
+	   hexcess[iCh]->Write();
+	 }
+	 
+	 else if (flag==3){
+	   f1->SetParameters(1., 10., 1.);
+	   for (int bin=0;bin<=hdiff[iCh]->GetNbinsX();bin++){
+	     //fprintf (stderr,"bin %i, content %f\n",bin,hdiff->GetBinContent(bin));
+	     if(hdiff[iCh]->GetBinContent(bin) !=0 ){
+	       hdiff[iCh]->SetBinContent(bin,log10(hdiff[iCh]->GetBinContent(bin)));
+	     }
+	   }
+	   if(debug>2) hdiff[iCh]->Fit("f1", "RQ","",10,30);
+	   hdiff[iCh]->Fit("f1", "RQ","",10,30); 
+	   Single_PE=hdiff[iCh]->GetFunction("f1")->GetParameter(1);
+	   hdiff[iCh]->Write();
+	 }
+	 
+	 outfile<<iCh<<"\t\t"<<Single_PE<<"\t\t"<<flag<<endl;
+       }
+     outfile.close();
+     f->Close(); 
+     fprintf(stderr,"Single PE Calculation successful \n");     
+     fprintf(stderr,"Output written in file %s.txt\n",name);     
+    }
+  return 0; 
+  
+}
+
