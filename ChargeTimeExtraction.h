@@ -1,0 +1,10 @@
+#include "fcio.h"
+#include "pzpsa.h"
+
+void   ChargeTimeExtraction();
+int    GetMaximum(FCIOData *x, int iCh);
+float  GetBaseline(FCIOData *x,int iCh);
+float  GetExcess(FCIOData *x,int iCh);
+int    InitChargeCalibration(const char *file_name,float *single_pe);
+float  GetPE(FCIOData *x,int iCh, float *single_pe);
+float  GetTime(FCIOData *x,int iCh, float **traces);

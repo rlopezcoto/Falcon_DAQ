@@ -1,0 +1,8 @@
+FLASHCAM= -I../Lib/ ./Lib/*.a
+ROOT_INC = $(shell root-config --cflags)
+ROOT_LIB = $(shell root-config --libs)
+
+#all:Flash2Falcon.c
+#	g++ Flash2Falcon.c -std=c++11 -o Flash2Falcon $(FLASHCAM) $(ROOT_INC) $(ROOT_LIB) 
+all:SinglePE.c
+	g++ ../src/ChargeTimeExtraction.c -std=c++0x -o ChargeTimeExtraction.o  $(FLASHCAM) $(ROOT_INC) $(ROOT_LIB) 
