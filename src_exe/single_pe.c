@@ -22,7 +22,6 @@
 #include "ChargeTimeExtraction.h"
 
 # define nChFADC 24
-using namespace std;
 
 int 	debug=0; 
 int 	us=4; 
@@ -171,7 +170,7 @@ int main(int argc, char**argv)
      TF1 *f1 = new TF1("f1","[0]*TMath::Power(([1]/[2]),(x/[2]))*(TMath::Exp(-([1]/[2])))/TMath::Gamma((x/[2])+1)"); // "xmin" = 0, "xmax" = 10
 
      TCanvas *c = new TCanvas("c","",600,400);
-     outfile<<"Channel \t Single PE \t Calibration flag"<<endl;
+     outfile<<"Channel \t Single PE \t Calibration flag"<<std::endl;
      for (int iCh=0;iCh<adcs;iCh++) 
        {
 	 if (flag==1){
@@ -215,7 +214,7 @@ int main(int argc, char**argv)
 	   hdiff[iCh]->Write();
 	 }
 	 
-	 outfile<<iCh<<"\t\t"<<Single_PE<<"\t\t"<<flag<<endl;
+	 outfile<<iCh<<"\t\t"<<Single_PE<<"\t\t"<<flag<<std::endl;
        }
      outfile.close();
      f->Close(); 

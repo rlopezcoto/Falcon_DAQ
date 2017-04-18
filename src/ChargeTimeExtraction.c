@@ -19,10 +19,9 @@
 
 #include "ChargeTimeExtraction.h"
 
-using namespace std; 
 
 void ChargeTimeExtraction(){
-  cout<<"fine"<<endl;
+  std::cout<<"fine"<<std::endl;
 
 }
 
@@ -62,20 +61,20 @@ int InitChargeCalibration(const char *file_name,float *single_pe){
 
   int flag=0;
 
-  ifstream ff(file_name);
+  std::ifstream ff(file_name);
   if(!ff.is_open()) {
-      cout << "Error opening calibration file " << file_name << "\n" << endl;
+      std::cout << "Error opening calibration file " << file_name << "\n" << std::endl;
       return 0; 
   }
 
   float dummy;
-  string line;
+  std::string line;
   int iCh;
   //float single_pe;
   std::getline(ff, line);
   fprintf(stderr,"Gain per channel taken from the calibration file %s \n", file_name); 
   fprintf(stderr,"%s\n",line.c_str());
-  //cout<<line<<endl;
+  //std::cout<<line<<std::endl;
   while (std::getline(ff, line))
       {
 	std::istringstream iss(line);

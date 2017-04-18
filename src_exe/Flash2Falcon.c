@@ -13,7 +13,6 @@
 //DAQ
 #include "ChargeTimeExtraction.h" 
 
-using namespace std;
 
 //global parameters from the command line
 int debug = 0;
