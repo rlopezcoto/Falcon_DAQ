@@ -1,0 +1,8 @@
+# Mac OSX
+.DS_Store
+
+# ipython notebook
+*.ipynb_checkpoints
+
+# Backup files
+*~
